@@ -3,16 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Visualisation 2D deck.gl avec OpenStreetMap</title>
+    <title>Visualisation 2D deck.gl - OpenStreetMap Direct</title>
 
-  
+    <!-- Tailwind CSS pour une interface utilisateur moderne et soignée -->
     <script src="https://cdn.tailwindcss.com"></script>
 
-    <!-- Maplibre GL JS (Alternative open-source et gratuite à Mapbox GL) -->
-    <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
-    <link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" />
-
-    <!-- Deck.gl (Bibliothèque de visualisation WebGL haute performance) -->
+    <!-- Deck.gl (Bibliothèque autonome contenant toutes les couches nécessaires, y compris TileLayer et BitmapLayer) -->
     <script src="https://unpkg.com/deck.gl@latest/dist.min.js"></script>
 
     <style>
@@ -22,36 +18,19 @@
             overflow: hidden;
             font-family: system-ui, -apple-system, sans-serif;
         }
-        #container {
+        #map-container {
             width: 100vw;
             height: 100vh;
             position: relative;
-        }
-        #map {
-            position: absolute;
-            top: 0;
-            bottom: 0;
-            width: 100%;
-            height: 100%;
-        }
-        #deck-canvas {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            pointer-events: auto; /* Permet de capturer les clics et le glisser-déposer pour naviguer */
+            background-color: #111827; /* Fond sombre par défaut pendant le chargement */
         }
     </style>
 </head>
-<body class="bg-gray-900 text-gray-100">
+<body class="bg-gray-950 text-gray-100">
 
     <div id="container">
-        <!-- Conteneur pour la carte de fond Maplibre (OpenStreetMap) -->
-        <div id="map"></div>
-        
-        <!-- Canvas pour deck.gl (gère la navigation maintenant) -->
-        <canvas id="deck-canvas"></canvas>
+        <!-- Conteneur unique pour deck.gl (gère le fond de carte ET la couche GeoJSON) -->
+        <div id="map-container"></div>
 
         <!-- PANNEAU PRINCIPAL (Gauche) : Informations et filtres généraux -->
         <div class="absolute top-4 left-4 z-10 w-96 max-w-[calc(100vw-2rem)] bg-gray-900/95 backdrop-blur-md p-6 rounded-xl shadow-2xl border border-gray-800 flex flex-col gap-4">
@@ -66,8 +45,8 @@
             </div>
             
             <p class="text-sm text-gray-400 leading-relaxed">
-                Naviguez librement sur la carte en glissant avec votre souris. 
-                <strong class="text-indigo-400">Cliquez sur une zone</strong> pour afficher ses informations détaillées.
+                Naviguez librement sur la carte en glissant avec votre souris (clic gauche). 
+                <strong class="text-indigo-400">Cliquez sur une zone</strong> pour afficher ses informations.
             </p>
 
             <!-- Paramètres de la couche -->
@@ -199,41 +178,7 @@
             ]
         };
 
-        // --- 2. INITIALISATION DU FOND DE CARTE OPENSTREETMAP ---
-        const map = new maplibregl.Map({
-            container: 'map',
-            style: {
-                "version": 8,
-                "sources": {
-                    "osm-tiles": {
-                        "type": "raster",
-                        "tiles": [
-                            "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png",
-                            "https://b.tile.openstreetmap.org/{z}/{x}/{y}.png",
-                            "https://c.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                        ],
-                        "tileSize": 256,
-                        "attribution": "&copy; <a href='https://www.openstreetmap.org/copyright' target='_blank'>Contributeurs OpenStreetMap</a>"
-                    }
-                },
-                "layers": [
-                    {
-                        "id": "osm-layer",
-                        "type": "raster",
-                        "source": "osm-tiles",
-                        "minzoom": 0,
-                        "maxzoom": 19
-                    }
-                ]
-            },
-            center: [INITIAL_VIEW_STATE.longitude, INITIAL_VIEW_STATE.latitude],
-            zoom: INITIAL_VIEW_STATE.zoom,
-            pitch: 0,
-            bearing: 0,
-            interactive: false // deck.gl gère entièrement les contrôles de navigation
-        });
-
-        // --- 3. CONFIGURATION ET INTERACTION DECK.GL ---
+        // --- 2. CONFIGURATION ET INTERACTION DECK.GL NATIF ---
         let geojsonData = null;
         let opacityValue = 0.75;
         let selectedObject = null;
@@ -251,32 +196,26 @@
         const detailsCustomProps = document.getElementById('details-custom-props');
         const closeDetailsBtn = document.getElementById('close-details');
 
-        // Création de l'instance DeckGL avec contrôles 2D uniquement
+        // Création de l'instance DeckGL autonome reliée à l'élément conteneur
         const deckInstance = new deck.DeckGL({
-            canvas: 'deck-canvas',
-            width: '100%',
-            height: '100%',
+            container: 'map-container',
             initialViewState: INITIAL_VIEW_STATE,
-            // Bloque la rotation de la carte (clic droit ou tactile) pour rester en 2D pure
+            // Empêche la rotation 3D pour rester sur une carte 2D classique
             controller: {
                 dragRotate: false,
                 touchRotate: false,
-                doubleClickZoom: true
+                doubleClickZoom: true,
+                keyboard: false
             },
-            // Synchronisation instantanée du fond de carte OpenStreetMap
+            // Verrouille la vue à plat en permanence
             onViewStateChange: ({viewState}) => {
-                // On force pitch et bearing à 0 pour interdire toute inclinaison ou rotation accidentelle
                 viewState.pitch = 0;
                 viewState.bearing = 0;
-                
-                map.jumpTo({
-                    center: [viewState.longitude, viewState.latitude],
-                    zoom: viewState.zoom,
-                    bearing: 0,
-                    pitch: 0
-                });
+                return viewState;
             },
-            // Ferme le panneau de détails si l'utilisateur clique à côté d'une zone
+            // Style du curseur selon le survol
+            getCursor: ({isHovering}) => isHovering ? 'pointer' : 'default',
+            // Ferme le volet de détails si on clique en dehors d'un polygone
             onClick: (info) => {
                 if (!info.handled) {
                     closeDetails();
@@ -285,59 +224,87 @@
             layers: []
         });
 
-        // Génération de la couche GeoJsonLayer 2D
-        function getGeojsonLayer() {
-            if (!geojsonData) return [];
+        // --- 3. DÉFINITION DES COUCHES ---
+        function getLayers() {
+            const layers = [];
 
-            return [
-                new deck.GeoJsonLayer({
-                    id: 'zone-geojson-layer',
-                    data: geojsonData,
-                    pickable: true,
-                    stroked: true,
-                    filled: true,
-                    extruded: false, // Forcer en 2D à plat
-                    
-                    // Style des contours
-                    getLineColor: d => {
-                        // Si la zone est celle sélectionnée, on lui donne une bordure jaune épaisse et visible
-                        if (selectedObject && d === selectedObject) {
-                            return [250, 204, 21, 255]; // Jaune vif
-                        }
-                        return [255, 255, 255, 200]; // Blanc classique
-                    },
-                    getLineWidth: d => (selectedObject && d === selectedObject) ? 4 : 2,
-                    lineWidthUnits: 'pixels',
-
-                    // Remplissage basé sur les valeurs
-                    getFillColor: d => {
-                        const val = d.properties.valeur || d.properties.value || 0;
-                        if (val > 700) return [79, 70, 229, opacityValue * 255];  // Indigo
-                        if (val > 400) return [99, 102, 241, opacityValue * 255];  // Indigo moyen
-                        return [6, 182, 212, opacityValue * 255];  // Cyan
-                    },
-
-                    // Événements d'interaction
-                    onHover: info => updateTooltip(info),
-                    onClick: (info, event) => {
-                        event.handled = true; // Empêche l'événement de se propager au fond de carte
-                        selectFeature(info.object);
-                    },
-                    
-                    // Triggers de mise à jour pour redessiner à chaud
-                    updateTriggers: {
-                        getFillColor: [opacityValue],
-                        getLineColor: [selectedObject],
-                        getLineWidth: [selectedObject]
+            // 1. Couche de Fond de carte OpenStreetMap (OSM) native à Deck.gl
+            // Elle charge les images de tuiles directement sans Maplibre et sans IndexedDB
+            layers.push(
+                new deck.TileLayer({
+                    id: 'osm-tile-layer',
+                    data: [
+                        'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                        'https://b.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                        'https://c.tile.openstreetmap.org/{z}/{x}/{y}.png'
+                    ],
+                    minZoom: 0,
+                    maxZoom: 19,
+                    tileSize: 256,
+                    renderSubLayers: props => {
+                        const {bbox: {west, south, east, north}} = props.tile;
+                        return new deck.BitmapLayer(props, {
+                            data: null,
+                            image: props.data,
+                            bounds: [west, south, east, north]
+                        });
                     }
                 })
-            ];
+            );
+
+            // 2. Couche GeoJSON pour vos zones personnalisées
+            if (geojsonData) {
+                layers.push(
+                    new deck.GeoJsonLayer({
+                        id: 'zone-geojson-layer',
+                        data: geojsonData,
+                        pickable: true,
+                        stroked: true,
+                        filled: true,
+                        extruded: false, // Strictement 2D
+                        
+                        // Style des bordures (Jaune vif si sélectionnée, Blanc transparent sinon)
+                        getLineColor: d => {
+                            if (selectedObject && d === selectedObject) {
+                                return [250, 204, 21, 255]; // Jaune
+                            }
+                            return [79, 70, 229, 230]; // Indigo
+                        },
+                        getLineWidth: d => (selectedObject && d === selectedObject) ? 4 : 2,
+                        lineWidthUnits: 'pixels',
+
+                        // Couleur de remplissage en dégradé selon l'indicateur "valeur" ou "value"
+                        getFillColor: d => {
+                            const val = d.properties.valeur || d.properties.value || 0;
+                            if (val > 700) return [79, 70, 229, opacityValue * 255];  // Indigo fort
+                            if (val > 400) return [99, 102, 241, opacityValue * 255];  // Indigo moyen
+                            return [6, 182, 212, opacityValue * 255];  // Cyan clair
+                        },
+
+                        // Événements d'interactions
+                        onHover: info => updateTooltip(info),
+                        onClick: (info, event) => {
+                            event.handled = true; // Signale à deck.gl que le clic a été traité
+                            selectFeature(info.object);
+                        },
+                        
+                        // Déclencheurs de mise à jour pour recalculer les couleurs dynamiquement
+                        updateTriggers: {
+                            getFillColor: [opacityValue],
+                            getLineColor: [selectedObject],
+                            getLineWidth: [selectedObject]
+                        }
+                    })
+                );
+            }
+
+            return layers;
         }
 
-        // Rafraîchir les couches de la carte
+        // Rafraîchir l'affichage global
         function updateDeck() {
             deckInstance.setProps({
-                layers: getGeojsonLayer()
+                layers: getLayers()
             });
         }
 
@@ -360,27 +327,27 @@
             }
         }
 
-        // --- 5. GESTION DU CLIC & SÉLECTION DE ZONE (PANNEAU DE GAUCHE) ---
+        // --- 5. CLIC & SÉLECTION D'UNE ZONE (PANNEAU DE GAUCHE) ---
         function selectFeature(object) {
             if (!object) return;
             selectedObject = object;
-            updateDeck(); // Met à jour la bordure de la zone sélectionnée
+            updateDeck(); // Redessine les contours avec surbrillance
 
             const props = object.properties;
             
-            // Titre et Valeur principale
+            // Assignation du titre et de la valeur principale
             detailsTitle.textContent = props.nom || props.name || "Zone sans nom";
             detailsValue.textContent = props.valeur || props.value || "Non spécifiée";
             
             // Description
-            detailsDesc.textContent = props.description || props.desc || "Aucune description fournie dans le fichier GeoJSON.";
+            detailsDesc.textContent = props.description || props.desc || "Aucune description trouvée pour cette zone dans le fichier GeoJSON.";
 
-            // Génération de la liste dynamique de toutes les autres propriétés
+            // Découverte et injection dynamique de toutes les propriétés présentes dans le GeoJSON
             detailsCustomProps.innerHTML = "";
             let count = 0;
             
             for (const key in props) {
-                // On ignore les clés principales déjà affichées en haut
+                // Ignore les propriétés déjà affichées en haut
                 if (['nom', 'name', 'valeur', 'value', 'description', 'desc'].includes(key.toLowerCase())) {
                     continue;
                 }
@@ -396,10 +363,10 @@
             }
 
             if (count === 0) {
-                detailsCustomProps.innerHTML = `<span class="text-[11px] text-gray-500 italic">Aucune autre propriété détectée.</span>`;
+                detailsCustomProps.innerHTML = `<span class="text-[11px] text-gray-500 italic">Aucune autre propriété détectée dans cette entité.</span>`;
             }
 
-            // Affiche le volet
+            // Ouvre le panneau
             detailsPanel.classList.remove('hidden');
         }
 
@@ -411,7 +378,7 @@
 
         closeDetailsBtn.addEventListener('click', closeDetails);
 
-        // --- 6. CHARGEMENT DE LA SOURCE GEOJSON ---
+        // --- 6. CHARGEMENT AUTOMATIQUE DES DONNÉES GEOJSON ---
         async function loadGeoJsonData() {
             try {
                 const response = await fetch('./zone.geojson');
@@ -424,29 +391,29 @@
                 if (data && (data.type === 'FeatureCollection' || data.type === 'Feature')) {
                     geojsonData = data;
                     
-                    // Recentre la caméra automatiquement sur vos zones géographiques réelles !
+                    // Ajuste automatiquement la vue sur l'emplacement géographique de vos données
                     fitBoundsOfGeoJSON(geojsonData);
                     
                     sourceBadge.textContent = "Fichier local actif";
                     sourceBadge.className = "px-2.5 py-1 text-xs font-semibold rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20";
-                    statusDetail.innerHTML = "<span class='text-emerald-400 font-semibold'>✔ Succès :</span> <code class='text-gray-300'>zone.geojson</code> est chargé et prêt.";
+                    statusDetail.innerHTML = "<span class='text-emerald-400 font-semibold'>✔ Succès :</span> <code class='text-gray-300'>zone.geojson</code> chargé et synchronisé en 2D.";
                 } else {
-                    throw new Error("Format GeoJSON invalide.");
+                    throw new Error("Format GeoJSON non reconnu.");
                 }
             } catch (error) {
-                console.warn("Fichier local introuvable ou illisible, chargement de la démo de sécurité.", error);
+                console.warn("Fichier zone.geojson non trouvé ou bloqué localement, affichage du GeoJSON de démonstration.", error);
                 geojsonData = demoGeoJson;
                 
                 statusDetail.innerHTML = `
                     <span class="text-amber-400 font-semibold">🔍 Note :</span> Fichier <code class="text-gray-300">zone.geojson</code> introuvable localement.<br>
-                    <span class="text-gray-400">Ajoutez votre fichier à côté de cet <code class="text-xs bg-gray-800 p-0.5 rounded text-gray-200">index.html</code> pour l'afficher.</span>
+                    <span class="text-gray-400">Pour afficher vos données, placez votre fichier <code class="text-xs bg-gray-800 p-0.5 rounded text-gray-200">zone.geojson</code> dans le même répertoire que ce fichier HTML.</span>
                 `;
             }
             
             updateDeck();
         }
 
-        // Recentre automatiquement le viewport de DeckGL sur l'emprise des données
+        // Calcule le centre géométrique de vos données pour y positionner la caméra
         function fitBoundsOfGeoJSON(geojson) {
             try {
                 let lats = [];
@@ -476,7 +443,6 @@
                     const centerLon = (minLon + maxLon) / 2;
                     const centerLat = (minLat + maxLat) / 2;
 
-                    // Ajustement des états de vue
                     const nextViewState = {
                         longitude: centerLon,
                         latitude: centerLat,
@@ -488,18 +454,13 @@
                     deckInstance.setProps({
                         initialViewState: nextViewState
                     });
-
-                    map.jumpTo({
-                        center: [centerLon, centerLat],
-                        zoom: nextViewState.zoom
-                    });
                 }
             } catch (err) {
-                console.error("Impossible de calculer les limites géographiques :", err);
+                console.error("Erreur lors de l'adaptation de la vue :", err);
             }
         }
 
-        // --- 7. ÉCOUTTEURS D'ÉVÉNEMENTS INTERFACES ---
+        // --- 7. ÉCOUTEURS D'ÉVÉNEMENTS INTERFACE ---
         
         // Curseur d'opacité
         opacitySlider.addEventListener('input', (e) => {
@@ -508,8 +469,8 @@
             updateDeck();
         });
 
-        // Démarrage initial
-        window.addEventListener('load', () => {
+        // Lancement au chargement du DOM
+        window.addEventListener('DOMContentLoaded', () => {
             loadGeoJsonData();
         });
     </script>
